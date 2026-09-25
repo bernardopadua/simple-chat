@@ -1,6 +1,7 @@
 #include <iostream>
 #include <thread>
 #include <sstream>
+
 #include "chat_manager.h"
 
 std::string HelperSimpleChat::get_room_name(const char * c) {
@@ -213,7 +214,8 @@ void MainRoom::add_peer(std::unique_ptr<Peer> p) {
 	u_long mode = 1;
 	ioctlsocket(p->get_my_socket(), FIONBIO, &mode);
 
-	m_peers.push_back(std::move(p));
+	std::scoped_lock lock(m_queued_peers_mtx);
+	m_queued_peers.push_back(std::move(p));
 }
 
 void MainRoom::close_and_kick(std::vector<std::unique_ptr<Peer>>::iterator &it) {
@@ -371,11 +373,20 @@ void MainRoom::chat_loop() {
 	while (1) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(500));
 		
+		std::vector<std::unique_ptr<Peer>> local;
+		{
+			std::scoped_lock lock(m_queued_peers_mtx);
+			std::swap(m_queued_peers, local);
+		}
+
+		for (auto& peer : local) {
+			m_peers.push_back(std::move(peer));
+		}
+
 		//=====================================
 		// Looping through peers to translate
 		// packets and all that stuff.
 		//=====================================
-		//std::vector<std::unique_ptr<Peer>>::const_iterator
 		for (auto it = m_peers.begin(); it != m_peers.end(); ) {
 			Peer* p = it->get();
 

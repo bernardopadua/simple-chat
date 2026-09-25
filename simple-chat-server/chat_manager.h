@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <list>
+#include <mutex>
 
 #include "WinSock2.h"
 #include "WS2tcpip.h"
@@ -114,5 +115,9 @@ public:
 private:
 	PacketManager m_pkt_mng;
 	std::vector<std::unique_ptr<Peer>> m_peers;
+
+	std::mutex m_queued_peers_mtx;
+	std::vector<std::unique_ptr<Peer>> m_queued_peers;
+
 	std::unordered_map<std::string, std::unique_ptr<ChatRoom>> m_chatrooms;
 };

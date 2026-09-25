@@ -127,7 +127,7 @@ int main(int argv, char** argc) {
 			std::cerr << "[!] Malformed packet or nickname len is too big. Investigate or debug it.\n";
 			return -1;
 		}
-		
+
 		peer_nickname.assign(&packet_init[3], len_nickname);
 		p = std::make_unique<Peer>(peer_nickname, new_peer, status_accept_sock);
 		
