@@ -4,5 +4,6 @@
     <LocalDebuggerCommand>$(TargetPath)</LocalDebuggerCommand>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
     <LocalDebuggerCommandArguments>zen</LocalDebuggerCommandArguments>
+    <LocalDebuggerCommandArgumentsHistory>zen|</LocalDebuggerCommandArgumentsHistory>
   </PropertyGroup>
 </Project>
