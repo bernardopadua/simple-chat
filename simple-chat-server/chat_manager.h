@@ -48,7 +48,6 @@ public:
 		m_nickname(p_nickname),
 		m_peer_sockaddr(p_peer_sockaddr),
 		m_peer_sock(p_peer_sock),
-		m_is_in_room(false),
 		m_is_logged(false),
 		m_last_activity(time(nullptr)),
 		m_in_room(nullptr)
@@ -70,7 +69,6 @@ public:
 
 private:
 	std::string m_nickname;
-	bool m_is_in_room;
 	bool m_is_logged;
 	time_t m_last_activity;
 
@@ -101,11 +99,13 @@ private:
 	std::list<std::string> m_pending_messages;
 };
 
+enum class PeerAction { keep, kick };
+
 class MainRoom {
 public:
 	void chat_loop();
 	void add_peer(std::unique_ptr<Peer> p);
-	void parse_peer_messages(const char* buffer_packet, Peer* p, std::vector<std::unique_ptr<Peer>>::iterator &itr);
+	PeerAction parse_peer_messages(const char* buffer_packet, Peer* p);
 
 	void close_and_kick(std::vector<std::unique_ptr<Peer>>::iterator &it);
 
