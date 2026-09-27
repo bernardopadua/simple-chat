@@ -57,7 +57,6 @@ public:
 	~Peer();
 
 	int get_my_socket();
-	void close_connection();
 
 	void server_send(const char* message, int message_size);
 	bool break_time();

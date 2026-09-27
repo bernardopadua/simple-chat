@@ -91,15 +91,14 @@ int PacketManager::get_size_cursor() {
 }
 
 Peer::~Peer() {
-	closesocket(m_peer_sock);
+	if (m_peer_sock != INVALID_SOCKET){
+		closesocket(m_peer_sock);
+		m_peer_sock = INVALID_SOCKET;
+	}
 }
 
 int Peer::get_my_socket() {
 	return m_peer_sock;
-}
-
-void Peer::close_connection() {
-	closesocket(m_peer_sock);
 }
 
 time_t Peer::last_activity() {
@@ -220,7 +219,6 @@ void MainRoom::add_peer(std::unique_ptr<Peer> p) {
 
 void MainRoom::close_and_kick(std::vector<std::unique_ptr<Peer>>::iterator &it) {
 	Peer* p = it->get();
-	p->close_connection();
 
 	if (p->am_i_in_a_room()) {
 		// Since is just one room. Chat limitations.
@@ -394,6 +392,7 @@ void MainRoom::chat_loop() {
 			if (bytes_read < 0 && WSAGetLastError() == WSAEWOULDBLOCK) {
 				if (p->break_time()) {
 					this->close_and_kick(it);
+					continue;
 				}
 				++it;
 				continue;
