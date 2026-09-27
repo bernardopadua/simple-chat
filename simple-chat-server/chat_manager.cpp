@@ -1,6 +1,7 @@
 #include <iostream>
 #include <thread>
 #include <sstream>
+#include <cassert>
 
 #include "chat_manager.h"
 
@@ -91,15 +92,14 @@ int PacketManager::get_size_cursor() {
 }
 
 Peer::~Peer() {
-	closesocket(m_peer_sock);
+	if (m_peer_sock != INVALID_SOCKET){
+		closesocket(m_peer_sock);
+		m_peer_sock = INVALID_SOCKET;
+	}
 }
 
 int Peer::get_my_socket() {
 	return m_peer_sock;
-}
-
-void Peer::close_connection() {
-	closesocket(m_peer_sock);
 }
 
 time_t Peer::last_activity() {
@@ -119,7 +119,6 @@ bool Peer::break_time() {
 
 void Peer::get_me_a_room(ChatRoom *cr) {
 	m_in_room = cr;
-	m_is_in_room = true;
 }
 
 std::string &Peer::get_my_nickname() {
@@ -140,14 +139,15 @@ void Peer::server_send(const char* message, int message_size) {
 }
 
 bool Peer::am_i_in_a_room() {
-	return m_is_in_room;
+	return m_in_room != nullptr;
 }
 
 void Peer::quit_room() {
-	if (m_is_in_room) {
-		m_in_room->remove_peer_from_room(this);
-		m_is_in_room = false;
-	}
+	if (m_in_room == nullptr)
+		return;
+
+	m_in_room->remove_peer_from_room(this);
+	m_in_room = nullptr;
 }
 
 bool ChatRoom::add_peer_to_room(Peer* p) {
@@ -220,12 +220,8 @@ void MainRoom::add_peer(std::unique_ptr<Peer> p) {
 
 void MainRoom::close_and_kick(std::vector<std::unique_ptr<Peer>>::iterator &it) {
 	Peer* p = it->get();
-	p->close_connection();
 
-	if (p->am_i_in_a_room()) {
-		// Since is just one room. Chat limitations.
-		p->get_my_room()->remove_peer_from_room(p); //Could implement inside peer, but i don't feel like it
-	}
+	p->quit_room();
 
 	it = m_peers.erase(it);
 }
@@ -242,16 +238,29 @@ bool MainRoom::create_chat_room(std::string &room_name) {
 }
 
 bool MainRoom::join_chat_room(std::string& room_name, Peer *p) {
-	ChatRoom *chat_room = m_chatrooms.find(room_name)->second.get();
+	auto it = m_chatrooms.find(room_name);
+	if (it == m_chatrooms.end()) 
+		return false;
+
+	ChatRoom *chat_room = it->second.get();
+	//Can't enter same room.
+	if (p->get_my_room() == chat_room) {
+		return true;
+	}
+	
+	//Assuring peer leaves a room if in any.
+	p->quit_room();
+
 	if (!chat_room->add_peer_to_room(p)) {
 		return false;
 	}
+	
 	p->get_me_a_room(chat_room);
 
 	return true;
 }
 
-void MainRoom::parse_peer_messages(const char* buffer_packet, Peer *peer, std::vector<std::unique_ptr<Peer>>::iterator &itr) {
+PeerAction MainRoom::parse_peer_messages(const char* buffer_packet, Peer *peer) {
 	PacketID pkt;
 	
 	// Get packet
@@ -266,6 +275,7 @@ void MainRoom::parse_peer_messages(const char* buffer_packet, Peer *peer, std::v
 			m_pkt_mng.attach_message_size(false, true);
 			m_pkt_mng.attach_message("[!] This chat room already exists!\n");
 			peer->server_send(m_pkt_mng.get_message_data(), m_pkt_mng.get_size_cursor());
+			break;
 		}
 
 		if (!this->create_chat_room(room_name)) {
@@ -289,12 +299,13 @@ void MainRoom::parse_peer_messages(const char* buffer_packet, Peer *peer, std::v
 			m_pkt_mng.attach_message_size(false, true);
 			m_pkt_mng.attach_message("[!] This chat room doesn't exists!\n");
 			peer->server_send(m_pkt_mng.get_message_data(), m_pkt_mng.get_size_cursor());
+			break;
 		}
 
 		if (!this->join_chat_room(room_name, peer)) {
 			m_pkt_mng.init_packetid(PacketID::pk_peer_message);
 			m_pkt_mng.attach_message_size(false, true);
-			m_pkt_mng.attach_message("[!] Can't join room! Bye!\n");
+			m_pkt_mng.attach_message("[!] Can't join room!\n");
 			peer->server_send(m_pkt_mng.get_message_data(), m_pkt_mng.get_size_cursor());
 		} else {
 			m_pkt_mng.init_packetid(PacketID::pk_join_room);
@@ -324,10 +335,12 @@ void MainRoom::parse_peer_messages(const char* buffer_packet, Peer *peer, std::v
 	}
 	case PacketID::pk_server_message: {
 		if (!peer->am_i_in_a_room()) {
-			return;
+			return PeerAction::keep;
 		}
 
 		ChatRoom* cr = peer->get_my_room();
+
+		assert(cr != nullptr);
 		if (cr == nullptr) {
 			std::cerr << "[!] Trying to message a room that peer is not in. Debug it!" << std::endl;
 			
@@ -335,7 +348,7 @@ void MainRoom::parse_peer_messages(const char* buffer_packet, Peer *peer, std::v
 			m_pkt_mng.attach_message_size(false, true);
 			m_pkt_mng.attach_message("[!] You are trying to message a room that you are not in. Bye!\n");
 			peer->server_send(m_pkt_mng.get_message_data(), m_pkt_mng.get_size_cursor());
-			this->close_and_kick(itr);
+			return PeerAction::kick;
 		}
 		
 		std::string message_to_room(HelperSimpleChat::get_room_message(buffer_packet));
@@ -364,6 +377,8 @@ void MainRoom::parse_peer_messages(const char* buffer_packet, Peer *peer, std::v
 		break;
 	}
 	}
+
+	return PeerAction::keep;
 }
 
 void MainRoom::chat_loop() {
@@ -394,6 +409,7 @@ void MainRoom::chat_loop() {
 			if (bytes_read < 0 && WSAGetLastError() == WSAEWOULDBLOCK) {
 				if (p->break_time()) {
 					this->close_and_kick(it);
+					continue;
 				}
 				++it;
 				continue;
@@ -404,7 +420,10 @@ void MainRoom::chat_loop() {
 				this->close_and_kick(it);
 				continue;
 			}
-			this->parse_peer_messages(buffer_peer_pkmsg.data(), p, it);
+			if (this->parse_peer_messages(buffer_peer_pkmsg.data(), p) == PeerAction::kick) {
+				this->close_and_kick(it);
+				continue;
+			}
 			++it;
 		}
 		// End looping translator -------------------

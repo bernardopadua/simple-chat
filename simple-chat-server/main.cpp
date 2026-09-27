@@ -3,6 +3,7 @@
 
 #include "chat_manager.h" //WinSock n stuff
 #include "packets.h"
+#include "net_platform.h"
 
 //==================================
 // Author: Monkey/Pimptech
@@ -78,18 +79,21 @@ int main(int argv, char** argc) {
 		new_peer_len = sizeof new_peer;
 		std::cout << "[@] Waiting connections...\n";
 		status_accept_sock = accept(g_sock, (sockaddr *)&new_peer, &new_peer_len);
-		if (status_accept_sock < 0) {
+		if (status_accept_sock == invalid_socket) {
 			last_errno = WSAGetLastError();
 			switch (last_errno) {
 				case WSAENOTSOCK:
 					std::cerr << "Socket is dead. Server must restart.\n";
 					return -1;
-				
-				//... and so on.
 			}
 
 			std::cerr << "[!] Some mysterious error, with faith the server will keep up. Ignore for now.\n";
+			continue;
 		}
+		
+		DWORD timeout = 3000;
+		setsockopt(status_accept_sock, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+
 		std::cout << "[@] 1 peer connected... \n";
 
 		//==================================================
@@ -107,25 +111,38 @@ int main(int argv, char** argc) {
 			last_errno = WSAGetLastError();
 			switch (last_errno) {
 			case WSAENOTSOCK:
-				std::cerr << "Socket is dead. Server must restart.\n";
-				return -1;
-
-				//... and so on.
+				std::cerr << "Socket is dead. Keep listening...\n";
+				continue;
 			}
 
 			std::cerr << "[!] Error recv, if error ocurred the client must try again. Bye.\n";
-			break;
+			closesocket(status_accept_sock);
+			continue;
 		}
+
+		if (status_recv < 3) {
+			std::cerr << "[!] Abnormal packet size. Bye.";
+			closesocket(status_accept_sock);
+			continue;
+		}
+
 		if ((unsigned char)packet_init[0] != (unsigned char)PacketID::pk_ack_login) {
 			std::cerr << "[!] My friend is not emitting normal packets. Bye.";
 			closesocket(status_accept_sock);
-			break;
+			continue;
 		}
 		
 		memcpy(&len_nickname, &packet_init[1], 2);
-		if (len_nickname > 200) {
+		if (len_nickname > 200 || len_nickname <= 0) {
 			std::cerr << "[!] Malformed packet or nickname len is too big. Investigate or debug it.\n";
-			return -1;
+			closesocket(status_accept_sock);
+			continue;
+		}
+
+		if (len_nickname > (status_recv - 3)) {
+			std::cerr << "[!] Nickname length is larger than it's packet.\n";
+			closesocket(status_accept_sock);
+			continue;
 		}
 
 		peer_nickname.assign(&packet_init[3], len_nickname);
