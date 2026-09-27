@@ -240,7 +240,11 @@ bool MainRoom::create_chat_room(std::string &room_name) {
 }
 
 bool MainRoom::join_chat_room(std::string& room_name, Peer *p) {
-	ChatRoom *chat_room = m_chatrooms.find(room_name)->second.get();
+	auto it = m_chatrooms.find(room_name);
+	if (it == m_chatrooms.end()) 
+		return false;
+
+	ChatRoom *chat_room = it->second.get();
 	if (!chat_room->add_peer_to_room(p)) {
 		return false;
 	}
@@ -264,6 +268,7 @@ void MainRoom::parse_peer_messages(const char* buffer_packet, Peer *peer, std::v
 			m_pkt_mng.attach_message_size(false, true);
 			m_pkt_mng.attach_message("[!] This chat room already exists!\n");
 			peer->server_send(m_pkt_mng.get_message_data(), m_pkt_mng.get_size_cursor());
+			break;
 		}
 
 		if (!this->create_chat_room(room_name)) {
@@ -287,12 +292,13 @@ void MainRoom::parse_peer_messages(const char* buffer_packet, Peer *peer, std::v
 			m_pkt_mng.attach_message_size(false, true);
 			m_pkt_mng.attach_message("[!] This chat room doesn't exists!\n");
 			peer->server_send(m_pkt_mng.get_message_data(), m_pkt_mng.get_size_cursor());
+			break;
 		}
 
 		if (!this->join_chat_room(room_name, peer)) {
 			m_pkt_mng.init_packetid(PacketID::pk_peer_message);
 			m_pkt_mng.attach_message_size(false, true);
-			m_pkt_mng.attach_message("[!] Can't join room! Bye!\n");
+			m_pkt_mng.attach_message("[!] Can't join room!\n");
 			peer->server_send(m_pkt_mng.get_message_data(), m_pkt_mng.get_size_cursor());
 		} else {
 			m_pkt_mng.init_packetid(PacketID::pk_join_room);
